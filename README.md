@@ -62,5 +62,4 @@ AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
 Push Changes
 Any changes pushed to the main branch will trigger the CI/CD pipeline, which will:
-
 Deploy changes to the EC2 instance using SSH.
