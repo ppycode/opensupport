@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Metadata:
+  License: Apache-2.0
+Description:
+  "AWS CloudFormation Sample Template S3_Website_Bucket_With_Retain_On_Delete:
+  Sample template showing how to create a publicly accessible S3 bucket configured
+  for website access with a deletion policy of retain on delete. **WARNING** This
+  template creates an S3 bucket that will NOT be deleted when the stack is deleted.
+  You will be billed for the AWS resources used if you create a stack from this template."
+Parameters:
+  BucketName:
+    Description: "Optional name of the bucket."
+    Type: String
+    Default: bucket
+  Access:
+    Description: "Access policy of the bucket."
+    Type: String
+    Default: Private
+    AllowedValues:
+      [
+        Private,
+        PublicRead,
+        CloudFrontRead,
+        CloudFrontAccessLogWrite,
+        ElbAccessLogWrite,
+        S3AccessLogWrite,
+        ConfigWrite,
+        CloudTrailWrite,
+        VpcEndpointRead,
+        FlowLogWrite,
+      ]
+
+Resources:
+  S3Bucket1:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      AccessControl: !Ref Access
+    DeletionPolicy: Retain
+
+Outputs:
+  BucketName:
+    Description: "Name of the bucket"
+    Value: !Ref S3Bucket1
+  BucketDomainName:
+    Description: "Domain name of the bucket."
+    Value: !GetAtt "S3Bucket1.DomainName"

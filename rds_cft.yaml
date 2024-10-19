@@ -1,0 +1,317 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "Stack for MSSQL RDS"
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: "General Parameters"
+        Parameters:
+          - Environment
+          - VPC
+          - Subnets
+      - Label:
+          default: "RDS Parameters"
+        Parameters:
+          - EngineVersion
+          - DBAllocatedStorage
+          - DBInstanceClass
+          - DBName
+          - DBBackupRetentionPeriod
+          - DBUser
+          - DBPassword
+          - MultiAZDatabase
+          - ParameterGroupFamily
+          - EC2SecurityGroupID
+          - StorageEncrypted
+          - DBStorageType
+          - DBIops
+          - DeletionProtection
+
+Parameters:
+  Environment:
+    Type: String
+    Description: An environment name that will be prefixed to resource names
+
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC where RDS can be created.
+
+  Subnets:
+    Type: "List<AWS::EC2::Subnet::Id>"
+    Description: The subnets where RDS can be created.
+
+  DBName:
+    Default: MyDatabase
+    Description: MySQL database name
+    Type: String
+    MinLength: "1"
+    MaxLength: "64"
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters.
+
+  MultiAZDatabase:
+    Default: "false"
+    Description: Create a Multi-AZ MySQL Amazon RDS database instance or not
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    ConstraintDescription: Must be either true or false.
+
+  DeletionProtection:
+    Type: String
+    Description: Enable or Disable deletion protection on the RDS
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Must be either true or false.
+
+  ParameterGroupFamily:
+    Type: String
+    Default: "mysql8.0"
+
+  EC2SecurityGroupID:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-0bba59af0819e26de
+    ConstraintDescription: AWS EC2 Security Group
+
+  EngineVersion:
+    Type: Number
+    Default: "8.0" 
+    AllowedValues:
+      - "5.5"
+      - "5.6"
+      - "5.7"
+      - "8.0.27"
+      - "8.0.28"
+      - "8.0"
+      # aws rds describe-db-engine-versions --engine mysql --query "DBEngineVersions[].EngineVersion"
+
+  DBUser:
+    Description: Username for MySQL database access
+    Type: String
+    MinLength: "1"
+    MaxLength: "16"
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters.
+
+  DBPassword:
+    NoEcho: "true"
+    Description: Password for MySQL database access
+    Type: String
+    MinLength: "7"
+    MaxLength: "41"
+    AllowedPattern: "[a-zA-Z0-9]*"
+    ConstraintDescription: Must contain only alphanumeric characters.
+
+  DBAllocatedStorage:
+    Default: "30"
+    Description: The size of the database (Gb)
+    Type: Number
+    MinValue: "5"
+    MaxValue: "1024"
+    ConstraintDescription: Must be between 5 and 1024Gb.
+
+  DBBackupRetentionPeriod:
+    Description: "The number of days to keep snapshots of the database."
+    Type: Number
+    MinValue: 0
+    MaxValue: 35
+    Default: 30
+
+  DBInstanceClass:
+    Description: The database instance type
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t1.micro
+      - db.t2.micro
+      - db.t2.small
+      - db.t2.medium
+      - db.t2.large
+      - db.t3.micro
+      - db.t3.medium
+      - db.t3.large
+      - db.t3.xlarge
+      - db.t3.2xlarge
+      - db.t4g.2xlarge
+      - db.m1.small
+      - db.m1.medium
+      - db.m1.large
+      - db.m1.xlarge
+      - db.m2.xlarge
+      - db.m2.2xlarge
+      - db.m2.4xlarge
+      - db.m2.xlarge
+      - db.m2.2xlarge
+      - db.m2.4xlarge
+      - db.m3.medium
+      - db.m3.large
+      - db.m3.xlarge
+      - db.m3.2xlarge
+      - db.m4.large
+      - db.m4.xlarge
+      - db.m4.2xlarge
+      - db.m4.4xlarge
+      - db.m4.10xlarge
+      - db.m5.large
+      - db.m5.xlarge
+      - db.m5.2xlarge
+      - db.m5.4xlarge
+      - db.m5.12xlarge
+      - db.r3.large
+      - db.r3.xlarge
+      - db.r3.2xlarge
+      - db.r3.4xlarge
+      - db.r3.8xlarge
+      - db.cr1.8xlarge
+    ConstraintDescription: Must select a valid database instance type.
+
+  StorageEncrypted:
+    Default: "false"
+    Description: Make it true for encrypted database
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    ConstraintDescription: Must be either true or false.
+
+  DBStorageType:
+    Default: gp2
+    Description: The storage type associated with this database instance
+    Type: String
+    AllowedValues:
+      - standard
+      - gp2
+      - io1
+
+  DBIops:
+    Default: "1000"
+    Description: DB Iops. Used only when io1 specified for the StorageType property
+    Type: Number
+    AllowedValues:
+      - "1000"
+      - "2000"
+      - "3000"
+      - "4000"
+      - "5000"
+      - "6000"
+      - "7000"
+      - "8000"
+      - "9000"
+      - "10000"
+    ConstraintDescription: "1000 Iops min and increased in 1K increments. "
+
+Conditions:
+  InStoragetype: !Equals
+    - !Ref DBStorageType
+    - io1
+  NotInStoragetype: !Or
+    - !Equals
+      - !Ref DBStorageType
+      - standard
+    - !Equals
+      - !Ref DBStorageType
+      - gp2
+
+Resources:
+  RDSDBParameterGroup3:
+    Type: "AWS::RDS::DBParameterGroup"
+    Properties:
+      Description: CloudFormation Parameter Group
+      Family: !Ref ParameterGroupFamily
+      Tags:
+        - Key: Env
+          Value: !Ref Environment
+      Parameters:
+        log_bin_trust_function_creators: "1"
+
+  DBSubnetGroup3:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: WebServer DB subnet group for staging
+      SubnetIds: !Ref Subnets
+      Tags:
+        - Key: Env
+          Value: !Ref Environment
+
+  DBEC2SecurityGroup3:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: Open staging database for access
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Env
+          Value: !Ref Environment
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "3306"
+          ToPort: "3306"
+          SourceSecurityGroupId: !Ref EC2SecurityGroupID
+
+  MySQLDatabase3:
+    Type: "AWS::RDS::DBInstance"
+    DeletionPolicy: Retain #Snapshot or Retain or Delete
+    Properties:
+      Engine: MySQL
+      DBInstanceIdentifier: !Ref DBName
+      EngineVersion: !Ref EngineVersion
+      DBName: !Ref DBName
+      MultiAZ: !Ref MultiAZDatabase
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      DBInstanceClass: !Ref DBInstanceClass
+      DBParameterGroupName: !Ref RDSDBParameterGroup3
+      AllocatedStorage: !Ref DBAllocatedStorage
+      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+      DBSubnetGroupName: !Ref DBSubnetGroup3
+      StorageType: !Ref DBStorageType
+      DeletionProtection: !Ref DeletionProtection
+      Iops: !If
+        - InStoragetype
+        - !Ref DBIops
+        - !Ref "AWS::NoValue"
+      StorageEncrypted: !Ref StorageEncrypted
+      Tags:
+        - Key: Env
+          Value: !Ref Environment
+        - Key: Name
+          Value: !Ref DBName
+      VPCSecurityGroups:
+        - Fn::GetAtt:
+            - DBEC2SecurityGroup3
+            - GroupId
+
+Outputs:
+  MySQLDatabase:
+    Value: !Ref MySQLDatabase3
+    Description: Name of the newly created database instance
+
+  MySQLDatabaseAddress:
+    Description: Address for the master database
+    Value: !GetAtt MySQLDatabase3.Endpoint.Address
+
+  MySQLDatabasePort:
+    Description: DB Port for the master database
+    Value: !GetAtt MySQLDatabase3.Endpoint.Port
+
+  MySQLDatabaseEndpointWithPort:
+    Description: Endpoint with port for the master database
+    Value:
+      !Join [
+        ":",
+        [!GetAtt MySQLDatabase3.Endpoint.Address, !GetAtt MySQLDatabase3.Endpoint.Port],
+      ]
+
+  DBSubnetGroup:
+    Value: !Ref DBSubnetGroup3
+    Description: Subnet group
+    Export:
+      Name: DBSubnetGroupProd1
+
+  DBParameterGroup:
+    Value: !Ref RDSDBParameterGroup3
+    Description: Paramater group
+    Export:
+      Name: DBParameterGroupProd1
