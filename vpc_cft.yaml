@@ -1,0 +1,743 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# ---------------------------------------------------------------------------- #
+#                                  Description                                 #
+# ---------------------------------------------------------------------------- #
+
+Description:
+  This template deploys a VPC, with a pair of public and private subnets spread
+  It deploys an internet gateway, with a default route on the public subnets. 
+  It deploys a pair of NAT gateways and default routes for them in the private subnets.
+
+# ---------------------------------------------------------------------------- #
+#                                  Parameters                                  #
+# ---------------------------------------------------------------------------- #
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.110.0.0/16
+
+  PublicSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet .
+    Type: String
+    Default: 10.110.112.0/20
+
+  PublicSubnetLB1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet .
+    Type: String
+    Default: 10.110.64.0/20
+
+  PrivateSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet .
+    Type: String
+    Default: 10.110.16.0/20
+
+  PrivateSubnetService1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet.
+    Type: String
+    Default: 10.110.160.0/20
+
+
+Resources:
+  # ---------------------------------------------------------------------------- #
+  #                                      VPC                                     #
+  # ---------------------------------------------------------------------------- #
+
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+
+  # ---------------------------------------------------------------------------- #
+  #                               Internet Gateway                               #
+  # ---------------------------------------------------------------------------- #
+
+  InternetGateway1:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway1
+      VpcId: !Ref VPC1
+
+  # ---------------------------------------------------------------------------- #
+  #                                 Public Subnet                                #
+  # ---------------------------------------------------------------------------- #
+
+  PublicSubnet1a:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC1
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PublicSubnet1CIDR
+      VpcId: !Ref VPC1
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Subnet (AZ1)
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # ------------------------------- Load Balancer ------------------------------ #
+
+  PublicSubnetLB1a:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC1
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PublicSubnetLB1CIDR
+      VpcId: !Ref VPC1
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Subnet LB (AZ1)
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # ---------------------------------------------------------------------------- #
+  #                                Private Subnet                                #
+  # ---------------------------------------------------------------------------- #
+
+  PrivateSubnet1a:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC1
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      VpcId: !Ref VPC1
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Subnet (AZ1)
+        - Key: Environment
+          Value: !Ref EnvironmentName
+       
+
+  # ------ Private Subnets for RDS------ #
+
+  PrivateSubnetService1a:
+    Type: AWS::EC2::Subnet
+    DependsOn: VPC1
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PrivateSubnetService1CIDR
+      VpcId: !Ref VPC1
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Subnet Services (AZ1)
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # ---------------------------------------------------------------------------- #
+  #                                NAT Gateway EIP                               #
+  # ---------------------------------------------------------------------------- #
+
+  NatGateway1EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} NatGatewayEIP (AZ1)
+
+  # ---------------------------------------------------------------------------- #
+  #                                  NAT Gateway                                 #
+  # ---------------------------------------------------------------------------- #
+
+  NatGateway1a:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP1.AllocationId
+      SubnetId: !Ref PublicSubnetLB1a
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} NatGateway (AZ1)
+
+  # ---------------------------------------------------------------------------- #
+  #                                 Routing Table                                #
+  # ---------------------------------------------------------------------------- #
+
+  # ---------------------------- Public Route Table ---------------------------- #
+
+  PublicRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Routes
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DefaultPublicRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway1
+
+  PublicSubnet1RouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn: PublicRouteTable1
+    Properties:
+      SubnetId: !Ref PublicSubnet1a
+      RouteTableId: !Ref PublicRouteTable1
+
+  # ------------------------- Load Balancer Route Table ------------------------ #
+
+  PublicLBRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public LB Routes
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DefaultPublicLBRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicLBRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway1
+
+  PublicSubnetLB1RouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn: DefaultPublicLBRoute1
+    Properties:
+      SubnetId: !Ref PublicSubnetLB1a
+      RouteTableId: !Ref PublicLBRouteTable1
+
+  # ---------------------------- Private Route Table --------------------------- #
+
+  PrivateRouteTable1a:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Routes (AZ1)
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DefaultPrivateRoute1a:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1a
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1a
+
+  PrivateSubnet1aRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn: PrivateRouteTable1a
+    Properties:
+      SubnetId: !Ref PrivateSubnet1a
+      RouteTableId: !Ref PrivateRouteTable1a
+
+  # --------------------------------- Services --------------------------------- #
+
+  PrivateServiceRouteTable1a:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Services Routes (AZ1)
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PrivateSubnetService1aRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn: PrivateServiceRouteTable1a
+    Properties:
+      SubnetId: !Ref PrivateSubnetService1a
+      RouteTableId: !Ref PrivateServiceRouteTable1a
+
+  # ---------------------------------------------------------------------------- #
+  #                                Security Group                                #
+  # ---------------------------------------------------------------------------- #
+
+  SecurityGroup1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security Group"
+      GroupName: Prod
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}
+
+  # -------------------- Ingress Security Group - CIDR ------------------- #
+
+  IngressHTTPSecurityGroup1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: 0.0.0.0/0
+      GroupId: !Ref SecurityGroup1
+
+  IngressHTTPSSecurityGroup1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+      GroupId: !Ref SecurityGroup1
+
+  IngressSSHSecurityGroup1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SecurityGroup1
+      SourceSecurityGroupId: !Ref SecurityGroup1
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+
+  # ---------------------------------------------------------------------------- #
+  #                              NACL Configuration                              #
+  # ---------------------------------------------------------------------------- #
+
+  PublicNetworkAcl1:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Acl
+        - Key: Env
+          Value: !Ref EnvironmentName
+
+  PublicLBNetworkAcl1:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public LB Acl
+        - Key: Env
+          Value: !Ref EnvironmentName
+
+  PrivateNetworkAcl1:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Acl
+        - Key: Env
+          Value: !Ref EnvironmentName
+
+  # ---------------------------------------------------------------------------- #
+  #                                 Inbound Entry                                #
+  # ---------------------------------------------------------------------------- #
+
+  # -------------------------------- Public NACL ------------------------------- #
+
+  #Allow Inbound TCP port 80
+  InboundHTTPPublicNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl1
+      RuleNumber: "100"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "80"
+        To: "80"
+
+  #Allow Inbound TCP port 443
+  InboundHTTPSPublicNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl1
+      RuleNumber: "120"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "443"
+        To: "443"
+
+  #Allow Inbound TCP port 1024 to 65535 (dynamic Ports)
+  InboundDynamicPortsPublicNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl1
+      RuleNumber: "140"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      # CidrBlock: "0.0.0.0/0"
+      CidrBlock: !Ref VpcCIDR
+      PortRange:
+        From: "1024"
+        To: "65535"
+
+  #Allow Inbound TCP port 22
+  InboundSSHPortsPublicNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl1
+      RuleNumber: "160"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "22"
+        To: "22"
+
+  # ------------------------ Load Balancer Inbound Entry ----------------------- #
+
+  InboundPublicLBNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicLBNetworkAcl1
+      RuleNumber: "100"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "1024"
+        To: "65535"
+
+  InboundPublicHTTPLBNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicLBNetworkAcl1
+      RuleNumber: "120"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "80"
+        To: "80"
+
+  InboundPublicHTTPSLBNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicLBNetworkAcl1
+      RuleNumber: "140"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "443"
+        To: "443"
+
+  InboundPublicSSHLBNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicLBNetworkAcl1
+      RuleNumber: "160"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "22"
+        To: "22"
+
+  # ------------------------------- Private NACL ------------------------------- #
+
+  #Allow Inbound TCP port 3306
+  InboundMyQSLPrivateNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl1
+      RuleNumber: "100"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: !Ref VpcCIDR
+      PortRange:
+        From: "3306"
+        To: "3306"
+
+  #Allow Inbound TCP Dynamic Port
+  InboundDynamicPortsPrivateNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl1
+      RuleNumber: "145"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "1024"
+        To: "65535"
+
+  InboundEksPrivateNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl1
+      RuleNumber: "160"
+      Protocol: "-1"
+      RuleAction: allow
+      Egress: "false"
+      CidrBlock: !Ref VpcCIDR
+      PortRange:
+        From: 0
+        To: 65535
+
+  # ---------------------------------------------------------------------------- #
+  #                                 OutboundEntry                                #
+  # ---------------------------------------------------------------------------- #
+
+  # -------------------------------- Public NACL ------------------------------- #
+
+  OutboundHTTPPublicNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl1
+      RuleNumber: "100"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "true"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "80"
+        To: "80"
+
+  OutboundHTTPSPublicNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl1
+      RuleNumber: "120"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "true"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "443"
+        To: "443"
+
+  OutboundDynamicPortsPublicNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl1
+      RuleNumber: "140"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "true"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "1024"
+        To: "65535"
+
+  OutboundSSHPortsPublicNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl1
+      RuleNumber: "160"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "true"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "22"
+        To: "22"
+
+  # ----------------------- Load Balancer Outbound Entry ----------------------- #
+
+  OutboundPublicLBNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicLBNetworkAcl1
+      RuleNumber: "100"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "true"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "0"
+        To: "65535"
+
+  # ------------------------------- Private NACL ------------------------------- #
+
+  OutboundHTTPSPrivateNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl1
+      RuleNumber: "190"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "true"
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: "443"
+        To: "443"
+
+  OutboundHTTPPrivateNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl1
+      RuleNumber: "180"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "true"
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: "80"
+        To: "80"
+
+  OutboundRandomPrivateNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl1
+      RuleNumber: "160"
+      Protocol: "6"
+      RuleAction: allow
+      Egress: "true"
+      CidrBlock: "0.0.0.0/0"
+      PortRange:
+        From: "1024"
+        To: "65535"
+
+  OutboundPrivateNaclEntry1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl1
+      RuleNumber: "161"
+      Protocol: -1
+      RuleAction: allow
+      Egress: "true"
+      CidrBlock: !Ref VpcCIDR
+      PortRange:
+        From: 0
+        To: 65535
+
+  # ---------------------------------------------------------------------------- #
+  #                               NACL Association                               #
+  # ---------------------------------------------------------------------------- #
+
+  # ------------------------------- Public Subnet ------------------------------ #
+
+  PublicSubnet1NetworkAclAssociation1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1a
+      NetworkAclId: !Ref PublicNetworkAcl1
+
+  PublicLBSubnet1NetworkAclAssociation1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetLB1a
+      NetworkAclId: !Ref PublicLBNetworkAcl1
+
+  # ------------------------------ Private Subnet ------------------------------ #
+
+  PrivateSubnet1NetworkAclAssociation1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1a
+      NetworkAclId: !Ref PrivateNetworkAcl1
+
+  PrivateSubnetService1NetworkAclAssociation1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetService1a
+      NetworkAclId: !Ref PrivateNetworkAcl1
+
+Outputs:
+  VPC:
+    Description: A reference to the created VPC
+    Value: !Ref VPC1
+
+  PublicSubnets:
+    Description: A list of the public subnets
+    Value:
+      !Join [
+        ",",
+        [
+          !Ref PublicSubnet1a,
+          !Ref PublicSubnetLB1a,
+        ],
+      ]
+
+  PrivateSubnets:
+    Description: A list of the private subnets
+    Value:
+      !Join [
+        ",",
+        [
+          !Ref PrivateSubnet1a,
+          !Ref PrivateSubnetService1a,
+        ],
+      ]
+
+  PublicSubnet1:
+    Description: A reference to the public subnet in the 1st Availability Zone
+    Value: !Ref PublicSubnet1a
+
+  PublicSubnetLB1:
+    Description: A reference to the public subnet in the 1st Availability Zone
+    Value: !Ref PublicSubnetLB1a
+
+  PrivateSubnet1:
+    Description: A reference to the private subnet in the 1st Availability Zone
+    Value: !Ref PrivateSubnet1a
+
+  PrivateSubnetService1:
+    Description: A reference to the private subnet in the 1st Availability Zone
+    Value: !Ref PrivateSubnetService1a
+
+  PublicRouteTable:
+    Description: Public Subnet Route Table
+    Value: !Ref PublicRouteTable1
+
+  PublicLBRouteTable:
+    Description: Public Subnet Load Balancer Route Table
+    Value: !Ref PublicLBRouteTable1
+
+  PrivateRouteTable1:
+    Description: Private Subnet 1 Route Table
+    Value: !Ref PrivateRouteTable1a
+
+  PrivateServiceRouteTable1:
+    Description: Private Subnet Services 1 Route Table
+    Value: !Ref PrivateServiceRouteTable1a
+
+  SecurityGroup:
+    Description: Security group with access to  CIDR
+    Value: !Ref SecurityGroup1
+
+  NatGateway1EIP:
+    Description: "NAT #1 EIP."
+    Value: !Ref NatGateway1EIP1
+
+  NatGateway1:
+    Description: "NAT #1 ID"
+    Value: !Ref NatGateway1a
+    Export:
+      Name: NATGateway1a
